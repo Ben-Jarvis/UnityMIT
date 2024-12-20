@@ -18,7 +18,7 @@ public class CameraMovement : MonoBehaviour
     public string state = "TDView";
     // Start is called before the first frame update
 
-    public const float animationTime = 1f;
+    public const float animationTime = 0.5f;
 
     public static GameObject embodiedDrone = null;
     public static GameObject nextEmbodiedDrone = null;
@@ -113,7 +113,7 @@ public class CameraMovement : MonoBehaviour
         updateTDView();
         if(embodiedDrone != null)
         {
-            StartCoroutine(goAnimation());
+            StartCoroutine(goAnimation(animationTime));
         }
         else
         {
@@ -121,7 +121,37 @@ public class CameraMovement : MonoBehaviour
         }
     }
 
-    public IEnumerator goAnimation(float _animationTime = animationTime)
+    public IEnumerator goAnimationDroneToDrone(float _animationTime, GameObject lastEmbodiedDrone)
+    {
+        state = "goAnimationDrone";
+        float elapsedTime = 0;
+        //position of the active camera
+        Vector3 startingPos = cam.transform.position;
+
+        float startingFOV = lastEmbodiedDrone.GetComponent<Camera>().fieldOfView;
+        while (elapsedTime < _animationTime)
+        {
+            lastEmbodiedDrone.GetComponent<Camera>().fieldOfView = Mathf.Lerp(lastEmbodiedDrone.GetComponent<Camera>().fieldOfView, 30, elapsedTime / _animationTime);
+            //look at the next drone
+            Vector3 direction = (embodiedDrone.transform.position - lastEmbodiedDrone.transform.position).normalized;
+            lastEmbodiedDrone.transform.rotation = Quaternion.LookRotation(direction);
+            elapsedTime += Time.deltaTime;
+            yield return new WaitForEndOfFrame();
+        }
+
+        lastEmbodiedDrone.GetComponent<Camera>().enabled = false;
+        lastEmbodiedDrone.GetComponent<Camera>().fieldOfView = startingFOV;
+
+        embodiedDrone.GetComponent<Camera>().enabled = true;
+        //look at the same direction as the last drone
+        Vector3 direction2 = (embodiedDrone.transform.position - lastEmbodiedDrone.transform.position).normalized;
+        embodiedDrone.transform.rotation = Quaternion.LookRotation(direction2);
+        cam.enabled = false;
+
+        StartCoroutine(droneView());
+    }
+
+    public IEnumerator goAnimation(float _animationTime)
     {
         state = "goAnimation";
         float elapsedTime = 0;
@@ -129,21 +159,23 @@ public class CameraMovement : MonoBehaviour
         Vector3 startingPos = cam.transform.position;
         while (elapsedTime < _animationTime)
         {
-            if(embodiedDrone == null)
+            if(embodiedDrone == null) // if was in a drone view before 
             {
                 cam.transform.rotation = intialCamRotation;
                 StartCoroutine(TDView());
                 yield break;
             }
-            
-            
+
             cam.GetComponent<Camera>().orthographicSize = Mathf.Lerp(cam.GetComponent<Camera>().orthographicSize, swarmModel.spawnHeight, elapsedTime / _animationTime);
-            //cam.transform.position = Vector3.Lerp(startingPos, embodiedDrone.transform.position, elapsedTime / _animationTime);
+            Vector3 positionToGo = new Vector3(embodiedDrone.transform.position.x, heightCamera, embodiedDrone.transform.position.z);
+            cam.transform.position = Vector3.Lerp(cam.transform.position, positionToGo, elapsedTime / _animationTime);
             elapsedTime += Time.deltaTime;
             yield return new WaitForEndOfFrame();
         }
 
         embodiedDrone.GetComponent<Camera>().enabled = true;
+        Vector3 direction = cam.transform.up;
+        embodiedDrone.transform.rotation = Quaternion.LookRotation(direction);
         cam.enabled = false;
 
         StartCoroutine(droneView());
@@ -153,24 +185,16 @@ public class CameraMovement : MonoBehaviour
     {
         state = "droneView";
         Vector3 lastPosition = embodiedDrone.transform.position;
+        GameObject lastEmbodiedDroneCam = embodiedDrone;
         while (embodiedDrone != null)
         {
             lastPosition = embodiedDrone.transform.position;
             updateDroneView();
             if(nextEmbodiedDrone != null)
             {
-                print("nextEmbodiedDrone");
-                embodiedDrone.GetComponent<Camera>().enabled = false;
-
-                cam.enabled = true;
-                Vector3 position = embodiedDrone.transform.position;
-                position.y = DEFAULT_HEIGHT_CAMERA;
-
-                cam.transform.position = position;
-                cam.transform.LookAt(nextEmbodiedDrone.transform.position);
-
+                GameObject lastEmbodiedDrone = embodiedDrone;
                 setEmbodiedDrone(nextEmbodiedDrone);
-                StartCoroutine(goAnimation(0.5f));
+                StartCoroutine(goAnimationDroneToDrone(animationTime, lastEmbodiedDrone ));
                 yield break;
             }
             yield return new WaitForSeconds(0.01f);
@@ -178,6 +202,8 @@ public class CameraMovement : MonoBehaviour
 
         cam.transform.position = new Vector3(lastPosition.x, heightCamera, lastPosition.z);
         cam.transform.rotation = intialCamRotation;
+        Vector3 direction = lastEmbodiedDroneCam.transform.forward;
+        direction.y = 0;
         cam.enabled = true;
         StartCoroutine(TDView());
 

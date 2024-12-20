@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 public class MigrationPointController : MonoBehaviour
@@ -20,6 +21,8 @@ public class MigrationPointController : MonoBehaviour
     public Vector3 deltaMigration = new Vector3(0, 0, 0); 
     public static Vector3 alignementVector = new Vector3(0, 0, 0);
 
+    public 
+
     bool firstTime = true;
 
     void Update()
@@ -33,28 +36,62 @@ public class MigrationPointController : MonoBehaviour
     {        
         if(Input.GetKeyDown("joystick button " + 5) || Input.GetKeyDown("joystick button " + 4)) 
         {
-            if(selectedDrone == null)
+            if(CameraMovement.embodiedDrone != null)
             {
-                if(swarmModel.swarmHolder.transform.childCount > 0)
+                Dictionary<Transform, float> dronesCoefficent = new Dictionary<Transform, float>();
+
+                foreach(Transform child in swarmModel.swarmHolder.transform)
                 {
-                    selectedDrone = swarmModel.swarmHolder.transform.GetChild(0).gameObject;
+                    Vector3 toDrone = child.position - CameraMovement.embodiedDrone.transform.position;
+                    float coeff = Vector3.Dot(toDrone.normalized, CameraMovement.embodiedDrone.transform.forward);
+                    if(coeff > 0.8f) // select only the drones in front of the embodied drone
+                    {
+                        coeff = coeff * 1/(toDrone.magnitude);
+                        dronesCoefficent.Add(child, coeff);
+                    }
+                }
+
+                // sort the drones by the coefficent
+                List<KeyValuePair<Transform, float>> myList = new List<KeyValuePair<Transform, float>>(dronesCoefficent);
+                myList.Sort((pair1, pair2) => pair1.Value.CompareTo(pair2.Value));
+
+                if(myList.Count > 0)
+                {
+                    if(selectedDrone != null)
+                    {
+                        selectedDrone.GetComponent<Renderer>().material = normalMaterial;
+                    }
+                    selectedDrone = myList[myList.Count - 1].Key.gameObject;
                     selectedDrone.GetComponent<Renderer>().material = selectedMaterial;
                 }
+
             }
             else
             {
-                int increment = Input.GetKeyDown("joystick button " + 5) ? 1 : -1;
-                //change material
-                selectedDrone.GetComponent<Renderer>().material = normalMaterial;
-                lastSelectedChild = (lastSelectedChild + increment) % swarmModel.swarmHolder.transform.childCount;
-                if(lastSelectedChild < 0)
+                if(selectedDrone == null)
                 {
-                    lastSelectedChild = swarmModel.swarmHolder.transform.childCount - 1;
+                    if(swarmModel.swarmHolder.transform.childCount > 0)
+                    {
+                        selectedDrone = swarmModel.swarmHolder.transform.GetChild(0).gameObject;
+                        selectedDrone.GetComponent<Renderer>().material = selectedMaterial;
+                    }
                 }
+                else
+                {
+                    int increment = Input.GetKeyDown("joystick button " + 5) ? 1 : -1;
+                    //change material
+                    selectedDrone.GetComponent<Renderer>().material = normalMaterial;
+                    lastSelectedChild = (lastSelectedChild + increment) % swarmModel.swarmHolder.transform.childCount;
+                    if(lastSelectedChild < 0)
+                    {
+                        lastSelectedChild = swarmModel.swarmHolder.transform.childCount - 1;
+                    }
 
-                selectedDrone = swarmModel.swarmHolder.transform.GetChild(lastSelectedChild).gameObject;
-                selectedDrone.GetComponent<Renderer>().material = selectedMaterial;
+                    selectedDrone = swarmModel.swarmHolder.transform.GetChild(lastSelectedChild).gameObject;
+                    selectedDrone.GetComponent<Renderer>().material = selectedMaterial;
+                }
             }
+                
         }
 
         // bvutton 0
@@ -81,10 +118,16 @@ public class MigrationPointController : MonoBehaviour
 
     void SpreadnessUpdate()
     {
-        float spreadness = Input.GetAxis("LR");
+        //float spreadness = Input.GetAxis("LR");
+        float step = 0.3f;
+        float increment = Input.GetKeyDown("joystick button " + 6) ? -step : 0;
+        increment += Input.GetKeyDown("joystick button " + 7) ? step : increment;
+
+        float spreadness = increment;
+
         if(spreadness != 0)
         {
-            swarmModel.desiredSeparation+= spreadness * Time.deltaTime * 1.3f;
+            swarmModel.desiredSeparation+= spreadness * 1.3f;
             if(swarmModel.desiredSeparation < 1.5)
             {
                 swarmModel.desiredSeparation = 1.5f;

@@ -177,8 +177,8 @@ Camera:
     width: 1
     height: 1
   near clip plane: 0.3
-  far clip plane: 25
-  field of view: 60
+  far clip plane: 1000
+  field of view: 82.1
   orthographic: 0
   orthographic size: 5
   m_Depth: 0
@@ -285,7 +285,7 @@ AudioSource:
     m_Curve:
     - serializedVersion: 3
       time: 0
-      value: 0
+      value: 0.13611111
       inSlope: 0
       outSlope: 0
       tangentMode: 0

@@ -56,6 +56,7 @@ async def setMotor(client, message):
         print(f'Error in setMotor: {e}')
 
 async def ble_task():
+    print('Starting BLE task')
     global ble_client
     while True:
         devices = await BleakScanner.discover()

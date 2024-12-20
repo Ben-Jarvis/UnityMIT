@@ -1,8 +1,10 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using FischlWorks_FogWar;
 using Unity.VisualScripting;
 using UnityEngine;
+using UnityEngine.InputSystem.Interactions;
 
 public class swarmModel : MonoBehaviour
 {
@@ -18,7 +20,7 @@ public class swarmModel : MonoBehaviour
     public float maxSpeed = 5f;
     public float maxForce = 10f;
 
-    public static int extraDistanceNeighboor = 7;
+    public static int extraDistanceNeighboor = 4;
     public static float neighborRadius
     {
         get
@@ -30,7 +32,6 @@ public class swarmModel : MonoBehaviour
     public static float desiredSeparation = 3f;
     public float alpha = 1.5f; // Separation weight
     public float beta = 1.0f;  // Alignment weight
-    public float gamma = 1.0f; // Cohesion weight
     public float delta = 1.0f; // Migration weight
 
     public float avoidanceRadius = 2f;     // Radius for obstacle detection
@@ -72,7 +73,7 @@ public class swarmModel : MonoBehaviour
         DroneFake.desiredSeparation = desiredSeparation;
         DroneFake.alpha = alpha;
         DroneFake.beta = beta;
-        DroneFake.gamma = gamma;
+
         DroneFake.delta = delta;
         DroneFake.avoidanceRadius = avoidanceRadius;
         DroneFake.avoidanceForce = avoidanceForce;
@@ -307,7 +308,6 @@ public class DroneFake
     public static float neighborRadius = 10f;
     public static float alpha = 1.5f; // Separation weight
     public static float beta = 1.0f;  // Alignment weight
-    public static float gamma = 1.0f; // Cohesion weight
     public static float delta = 1.0f; // Migration weight
     public static float avoidanceRadius = 2f;     // Radius for obstacle detection
     public static float avoidanceForce = 10f;     // Strength of the avoidance force
@@ -354,48 +354,128 @@ public class DroneFake
         return neighbors;
     }
 
-    public Vector3 ComputeObstacleAvoidanceForce()
+    public float GetCohesionIntensity(float r, float d_ref, float a, float b, float c)
     {
-        Vector3 avoidanceForceVector = Vector3.zero;
-        List<Vector3> obstacles = ClosestPointCalculator.ClosestPointsWithinRadius(position, avoidanceRadius);
-
-        foreach (Vector3 obstacle in obstacles)
-        {
-            // Calculate a force away from the obstacle
-            Vector3 awayFromObstacle = position - obstacle;
-            float distance = awayFromObstacle.magnitude - droneRadius;
-
-            if (distance > 0)
-            {
-                Vector3 repulsion = awayFromObstacle.normalized * (avoidanceForce / (distance * distance));
-                repulsion.y = 0; // Keep movement in the XZ plane
-                avoidanceForceVector += repulsion;
-            }
-            else
-            {
-                hasCrashed = true;
-            }
-
-        }
-        return avoidanceForceVector;
+        float diff = r - d_ref;
+        return (a + b) * 0.5f * (Mathf.Sqrt(1 + (diff + c) * (diff + c)) - Mathf.Sqrt(1 + c * c)) + (a - b) * diff * 0.5f;
     }
+
+    // Calculate the cohesion intensity derivative for the Olfati-Saber model
+    public float GetCohesionIntensityDer(float r, float d_ref, float a, float b, float c)
+    {
+        float diff = r - d_ref;
+        return ((a + b) * 0.5f * (diff + c) / Mathf.Sqrt(1 + (diff + c) * (diff + c))) + (a - b) * 0.5f;
+    }
+
+    // Calculate the neighbour weight for the Olfati-Saber model
+    public float GetNeighbourWeight(float r, float r0, float delta)
+    {
+        float r_ratio = r / r0;
+
+        if (r_ratio < delta)
+        {
+            return 1.0f;
+        }
+        else if (r_ratio < 1.0f)
+        {
+            float arg = Mathf.PI * (r_ratio - delta) / (1.0f - delta);
+            float val = 1.0f + Mathf.Cos(arg);
+            return 0.25f * (val * val);
+        }
+        else
+        {
+            return 0.0f;
+        }
+    }
+
+    // Calculate the derivative of the neighbour weight for the Olfati-Saber model
+    public float GetNeighbourWeightDer(float r, float r0, float delta)
+    {
+        float r_ratio = r / r0;
+
+        if (r_ratio < delta)
+        {
+            return 0.0f;
+        }
+        else if (r_ratio < 1.0f)
+        {
+            float arg = Mathf.PI * (r_ratio - delta) / (1.0f - delta);
+            return 0.5f * (-Mathf.PI / (1.0f - delta)) * (1.0f + Mathf.Cos(arg)) * Mathf.Sin(arg);
+        }
+        else
+        {
+            return 0.0f;
+        }
+    }
+
+    public float get_cohesion_force(float r, float d_ref, float a, float b, float c, float r0,float delta)
+    {
+
+        return 1 / r0 * GetNeighbourWeightDer(r, r0, delta) * GetCohesionIntensity(r, d_ref, a, b, c) + GetNeighbourWeight(r, r0, delta) * GetCohesionIntensityDer(r, d_ref, a, b, c);
+    }
+
+    public float get_neighbour_weight(float r, float r0, float delta)
+    {
+
+        float r_ratio = r / r0;
+
+        if(r_ratio < delta)
+        {
+            return 1;
+        }else if (r_ratio < 1)
+        {
+            return 0.25f * (1 + Mathf.Cos(Mathf.PI * (r_ratio - delta) / ((1 - delta)*(1 - delta))));
+        }
+        else
+        {
+            return 0;
+        }
+
+    }
+    
+
+    
     
     public void startPrediction(List<DroneFake> allDrones, Vector3 alignementVector)
     {
         ComputeForces(allDrones, alignementVector);
     }
 
-    public void ComputeForces(List<DroneFake> allDrones, Vector3 alignmentVector)
+
+
+    Vector3 computeAlignment(List<DroneFake> neighbors, Vector3 alignementVector)
+    {
+
+        return alignementVector;
+    }
+
+    public void ComputeForces(List<DroneFake> allDrones, Vector3 v_ref)
     {
         List<DroneFake> neighbors = GetNeighbors(allDrones);
 
-        int neighborCount = 0;
-        int realNeighborCount = 0;
-
-        Vector3 separationForce = Vector3.zero;
         Vector3 alignmentForce = Vector3.zero;
         Vector3 cohesionForce = Vector3.zero;
+        Vector3 obstacleAvoidanceForce = Vector3.zero;
 
+        float d_ref = desiredSeparation;
+        float d_ref_obs = 1.0f;
+
+        float r0_coh = neighborRadius;            
+        float delta = 1;
+
+        float a = alpha;           
+        float b = beta;   
+        float c = (b - a)/(2*Mathf.Sqrt(a*b));
+
+        float c_vm = 1;                             // Coefficient of velocity matching
+
+        float r0_obs = avoidanceRadius;             // Radius of obstacle avoidance
+        float lambda_obs = 1;                               // (0,1]
+        float c_pm_obs = avoidanceForce;            // Coefficient of obstacle avoidance
+        float c_vm_obs = 0f;                        // Coefficient of velocity matching
+
+
+        // Compute the cohesion force
         foreach (DroneFake neighbor in neighbors)
         {
             int neighborPriority = CameraMovement.embodiedDrone == neighbor.embodied ? PRIORITYWHENEMBODIED : 1;
@@ -404,58 +484,56 @@ public class DroneFake
             float distance = toNeighbor.magnitude - 2 * droneRadius;
 
             // Separation (repulsion)
-            if (distance > 0)
-            {
-                if (distance < desiredSeparation)
-                {
-                    Vector3 repulsion = -alpha * (distance - desiredSeparation * 0.9f) * (distance - desiredSeparation * 0.9f) * toNeighbor.normalized;
-                    separationForce += repulsion * neighborPriority;
-                }
-            }
-            else
+            if (distance < 0)
             {
                 hasCrashed = true;
             }
 
-            // Alignment
-            alignmentForce += neighbor.velocity * neighborPriority;
-            cohesionForce += neighbor.position * neighborPriority;
-            neighborCount += neighborPriority;
-            realNeighborCount++;
+            cohesionForce += get_cohesion_force(distance, d_ref, a, b, c, r0_coh, delta)*toNeighbor.normalized;
         }
 
-        if (neighborCount > 0 && realNeighborCount > 0)
+        // Compute the obstacle avoidance force
+        List<Vector3> obstacles = ClosestPointCalculator.ClosestPointsWithinRadius(position, avoidanceRadius);
+
+        foreach (Vector3 obstacle_pos in obstacles)
         {
-            alignmentForce /= neighborCount;
-            if (CameraMovement.embodiedDrone == null)
-            {
-                alignmentForce = (alignmentForce + MigrationPointController.alignementVector) / 2; 
-            }
+            // Calculate a force away from the obstacle
+            Vector3 awayFromObstacle = position - obstacle_pos;
+            float dist = awayFromObstacle.magnitude - droneRadius;
 
-            alignmentForce = (alignmentForce - velocity) * beta;
+            Vector3 pos_obs = obstacle_pos;
+            Vector3 vel_obs = Vector3.zero;
+            
+            Vector3 pos_gamma = obstacle_pos + lambda_obs * v_ref.normalized;
+            float d_ag = (pos_gamma - pos_obs).magnitude;
 
-            cohesionForce /= neighborCount;
-            cohesionForce = (cohesionForce - position) * gamma;
-        }else{
-            if(allDrones.Count <= 1)
+            obstacleAvoidanceForce += (
+                c_pm_obs * get_neighbour_weight(dist, d_ref, delta) * (
+                    get_cohesion_force(dist, d_ref_obs, a, b, c, r0_coh, delta) * (pos_obs - position) / dist +
+                    get_cohesion_force(d_ag, d_ref_obs, a, b, c, r0_coh, delta) * (pos_gamma - position).normalized
+                )
+                + c_vm_obs * (vel_obs - velocity)
+            );
+
+            if (dist < 0)
             {
-                alignmentForce = MigrationPointController.alignementVector;
-                alignmentForce = (alignmentForce - velocity) * beta;
+                hasCrashed = true;
             }
         }
 
-        alignmentForce.y = 0;
+        // Compute the alignment force
+        alignmentForce = c_vm *(v_ref - velocity);
 
-        // Obstacle Avoidance Force
-        Vector3 obstacleAvoidanceForce = ComputeObstacleAvoidanceForce();
+
 
         if (embodied)
         {
             Vector3 force = MigrationPointController.alignementVector;
-            acceleration = Vector3.ClampMagnitude(force, maxForce);
+            acceleration = Vector3.ClampMagnitude(force, maxForce/4);
             return;
         }
-        Vector3 fo = separationForce + cohesionForce + alignmentForce + obstacleAvoidanceForce;
+
+        Vector3 fo = cohesionForce*10 + alignmentForce + obstacleAvoidanceForce;
         fo = Vector3.ClampMagnitude(fo, maxForce);
         
         acceleration = fo;

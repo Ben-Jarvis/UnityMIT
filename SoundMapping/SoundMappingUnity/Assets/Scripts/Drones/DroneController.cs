@@ -62,12 +62,9 @@ public class DroneController : MonoBehaviour
         Destroy(firework, 0.5f);
     }
 
-    void FixedUpdate()
+    void Update()
     {
-        if (!prediction)
-        {
-            UpdateNormal();
-        }
+        UpdateNormal();
     }
 
 
